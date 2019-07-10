@@ -31,41 +31,10 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class UploadServiceImpl implements UploadService{
 	
-	 @Autowired
-	 private RestTemplate restTemplate;
-	
-	@Override
-	public ResponseEntity<?> saveImage(MultipartFile File) 
-	{
-		
-	   String fileName= StringUtils.cleanPath(File.getOriginalFilename());
-		 
-	   try {
-		   
-		   
-		   MultiValueMap<String, Object> bodyMap = new LinkedMultiValueMap<>();
-		   bodyMap.add("file", getUserFileResource(File));
-	        HttpHeaders headers = new HttpHeaders();
-	        headers.setContentType(MediaType.APPLICATION_JSON);
-	        HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(bodyMap, headers);
-	        String url = "http://localhost:8182/uploadFile";
-	        System.out.println("URL" + url);
-		     ResponseEntity<?> response = restTemplate.exchange(url,
-		     HttpMethod.POST, requestEntity, String.class);
-		     System.out.println("response status: " + response.getStatusCode());
-		     System.out.println("response body: " + response.getBody());
-			
-			System.out.println("Image Saved");
-			return response;
-	   }catch(IOException e) {
-		   e.printStackTrace();
-		   return null;
-	   }
-		
-	}
+	 
 
 	
-	 public static FileSystemResource getUserFileResource(MultipartFile File) throws IOException {
+	 public FileSystemResource getUserFileResource(MultipartFile File) throws IOException {
 	        //todo replace tempFile with a real file
 	        Path tempFile = Files.createTempFile(File.getName(),".jpeg");
 	        Files.write(tempFile, File.getBytes());

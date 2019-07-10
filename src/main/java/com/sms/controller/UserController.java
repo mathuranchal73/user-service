@@ -1,5 +1,6 @@
 package com.sms.controller;
 
+import java.io.IOException;
 import java.net.URI;
 import java.util.Collections;
 import java.util.Optional;
@@ -9,15 +10,16 @@ import javax.validation.Valid;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -28,21 +30,28 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.web.client.RestTemplate;
+
+
 
 import  com.sms.payload.JwtAuthenticationResponse;
-import  com.sms.payload.LoginRequest;
 import com.sms.exception.ResourceNotFoundException;
 import com.sms.model.UserProfile;
 import com.sms.security.CurrentUser;
 import com.sms.security.UserPrincipal;
-import com.sms.payload.UserIdentityAvailability;
+import com.sms.payload.UserSummary;
+import com.netflix.appinfo.InstanceInfo;
+import com.netflix.discovery.EurekaClient;
+import com.netflix.discovery.shared.Application;
 import com.sms.exception.AppException;
 import com.sms.model.Role;
 import com.sms.model.RoleName;
@@ -50,13 +59,13 @@ import com.sms.model.User;
 import com.sms.payload.ApiResponse;
 import com.sms.payload.SignUpRequest;
 import com.sms.payload.TokenRequest;
+import com.sms.payload.UploadFileResponse;
 import com.sms.payload.UserProfileRequest;
 import com.sms.repository.RoleRepository;
 import com.sms.repository.UserProfileRepository;
 import com.sms.repository.UserRepository;
 import com.sms.security.JwtTokenProvider;
 import com.sms.service.UploadService;
-//import com.sms.security.JwtTokenProvider;
 import com.sms.service.UserService;
 
 import io.swagger.annotations.Api;
@@ -68,6 +77,15 @@ import io.swagger.annotations.ApiOperation;
 public class UserController {
 	
 	    protected Logger logger = LoggerFactory.getLogger(UserController.class);
+	    
+	    @Autowired
+	    private EurekaClient eurekaClient;
+	   
+	    @Value("${service.upload-service.serviceId}")
+	    private String uploadServiceServiceId;
+	    
+	    @Autowired
+		 private RestTemplate restTemplate;
 	    
 	    @Autowired
 	    AuthenticationManager authenticationManager;
@@ -107,6 +125,15 @@ public class UserController {
 
 	        String jwt = tokenProvider.generateToken(authentication);
 	        return ResponseEntity.ok(new JwtAuthenticationResponse(jwt));
+	    }
+	    
+	    @GetMapping("/me")
+	    @PreAuthorize("hasRole('USER')")
+	    public UserSummary getCurrentUser(@CurrentUser UserPrincipal currentUser) {	
+	    	
+	        UserSummary userSummary = new UserSummary(currentUser.getId(), currentUser.getUsername(), currentUser.getName());
+	        System.out.println(userSummary);
+	        return userSummary;
 	    }
 
 
@@ -233,12 +260,86 @@ public class UserController {
 			 return ResponseEntity.created(location).body(new ApiResponse(true, "User Profile Created Successfully"));
 	    }
 	    
-	    @PostMapping("/UserProfile/upload/{username}")
+	    
+	    @PostMapping("/UserProfile/upload")
+	    @PreAuthorize("hasRole('USER')")
 	    @ApiOperation(value="upload", notes="Upload the Image file", nickname="upload")
-	    public ResponseEntity<?> upload(@PathVariable(value = "username") String username,@RequestParam("file") MultipartFile File)throws Exception {
-	    	  return uploadService.saveImage(File);
-								  
-	    }
+	    public ResponseEntity<?>  saveImage(@CurrentUser UserPrincipal currentUser,@RequestParam(value = "username") String username,@RequestParam("file") MultipartFile File) throws Exception {
+			
+	    	User user = userRepository.findByUsername(username)
+	                .orElseThrow(() -> new ResourceNotFoundException("User", "username", username));
+	    	
+	    	UserProfile userProfile=userProfileRepository.findUserProfileByUserId(user.getId());
+	    	
+	    	
+			 String fileName= StringUtils.cleanPath(File.getOriginalFilename());
+			 
+			 
+			 try {
+					//Check if the file's name contain invalid characters
+					if(fileName.contains("..")) {
+						throw new Exception("Sorry!! Filename contains invalid path sequence"+ fileName);
+					}
+					
+					
+					 MultiValueMap<String, Object> bodyMap = new LinkedMultiValueMap<>();
+				        bodyMap.add("file", uploadService.getUserFileResource(File));
+				        HttpHeaders headers = new HttpHeaders();
+				        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+				        HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(bodyMap, headers);
+
+				        Application application = eurekaClient.getApplication(uploadServiceServiceId);
+						InstanceInfo instanceInfo = application.getInstances().get(0);
+						String url = "http://"+instanceInfo.getIPAddr()+ ":"+instanceInfo.getPort()+"/"+"uploadFile";
+						System.out.println("URL" + url);
+				        ResponseEntity<UploadFileResponse> response = restTemplate.exchange(url,
+				                HttpMethod.POST, requestEntity, UploadFileResponse.class);
+		
+						userProfile.setDisplayPic(response.getBody().getFileName());
+						userProfileRepository.save(userProfile);
+						return new ResponseEntity<>(response.getBody().getFileDownloadUri(),HttpStatus.OK);
+					
+				}catch(IOException ex) {
+					return new ResponseEntity<>("Could not store file"+ fileName +".Please try again!",HttpStatus.BAD_REQUEST);
+					
+				}
+		      
+		    }
+	    
+	    @GetMapping("/UserProfile/download/{username}")
+	    @PreAuthorize("hasRole('USER')")
+	    @ApiOperation(value="download", notes="Download the Image file", nickname="download")
+	    public ResponseEntity<?>  getImage(@CurrentUser UserPrincipal currentUser,@PathVariable(value = "username") String username) throws Exception {
+			
+	    	User user = userRepository.findByUsername(username)
+	                .orElseThrow(() -> new ResourceNotFoundException("User", "username", username));
+	    	
+	    	UserProfile userProfile=userProfileRepository.findUserProfileByUserId(user.getId());
+			 
+			 
+			 try {
+					
+				        Application application = eurekaClient.getApplication(uploadServiceServiceId);
+						InstanceInfo instanceInfo = application.getInstances().get(0);
+						String url = "http://"+instanceInfo.getIPAddr()+ ":"+instanceInfo.getPort()+"/"+"downloadFile"+"/"+userProfile.getDisplayPic();
+				        ResponseEntity<?> response = restTemplate.exchange(url,
+				                HttpMethod.GET, null, Resource.class);
+		
+				        return ResponseEntity.ok()
+				                .contentType(MediaType.parseMediaType("application/octet-stream"))
+				                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + userProfile.getDisplayPic() + "\"")
+				                .body(url);
+				              
+					
+				}catch(Exception ex) {
+			
+					return new ResponseEntity<>("Could not find file!",HttpStatus.BAD_REQUEST);
+					
+				}
+		      
+		    }
+		    
+		    
 	    
 
 

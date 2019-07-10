@@ -19,6 +19,7 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, Long> 
 
     List<UserProfile> findByIdIn(List<Long> userIds);
    Optional<UserProfile> findByUserId(Long userId);
+   UserProfile findUserProfileByUserId(Long userId);
    //Optional<UserProfile> findByUuid(String uuid);
    UserProfile save(Optional<UserProfile> userProfile);
    
