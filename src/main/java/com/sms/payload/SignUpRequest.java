@@ -21,6 +21,10 @@ public class SignUpRequest {
     @NotBlank
     @Size(min = 6, max = 20)
     private String password;
+    
+    private boolean enabled;
+    
+    
 
     public  String getName() {
         return name;
@@ -53,4 +57,14 @@ public class SignUpRequest {
     public void setPassword(String password) {
         this.password = password;
     }
+
+	public boolean isEnabled() {
+		return false;
+	}
+
+	public void setEnabled(boolean enabled) {
+		this.enabled = enabled;
+	}
+    
+    
 }

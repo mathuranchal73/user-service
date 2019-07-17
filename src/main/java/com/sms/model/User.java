@@ -63,9 +63,12 @@ public class User extends DateAudit {
     @Size(max = 100)
     private String password;
 	
+	private boolean enabled;
+	
 	@NotBlank
     @Size(max = 100)
     private String uuid;
+	
 	
 	 @ManyToMany(fetch = FetchType.LAZY)
 	 @JoinTable(name="user_roles",joinColumns=@JoinColumn(name="user_id"),inverseJoinColumns=@JoinColumn(name="role_id"))
@@ -75,12 +78,13 @@ public class User extends DateAudit {
 		 
 	 }
 
-	public User(String name,String username,String email,String password,String uuid ) {
+	public User(String name,String username,String email,String password,boolean enabled,String uuid ) {
 
 		this.name = name;
 		this.username = username;
 		this.email = email;
 		this.password = password;
+		this.enabled = enabled;
 		this.uuid=uuid;
 	}
 
@@ -132,6 +136,15 @@ public class User extends DateAudit {
 		this.roles = roles;
 	}
 
+	
+	public boolean isEnabled() {
+		return enabled;
+	}
+
+	public void setEnabled(boolean enabled) {
+		this.enabled = enabled;
+	}
+	
 	public String getUuid() {
 		return uuid;
 	}

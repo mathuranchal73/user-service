@@ -2,7 +2,9 @@ package com.sms.controller;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Calendar;
 import java.util.Collections;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -12,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -40,25 +43,27 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.web.client.RestTemplate;
-
-
+import org.springframework.web.context.request.WebRequest;
 
 import  com.sms.payload.JwtAuthenticationResponse;
 import com.sms.exception.ResourceNotFoundException;
 import com.sms.kafka.Producer;
 import com.sms.model.UserProfile;
+import com.sms.model.VerificationToken;
 import com.sms.security.CurrentUser;
 import com.sms.security.UserPrincipal;
 import com.sms.payload.UserSummary;
 import com.netflix.appinfo.InstanceInfo;
 import com.netflix.discovery.EurekaClient;
 import com.netflix.discovery.shared.Application;
+import com.sms.event.OnRegistrationSuccessEvent;
 import com.sms.exception.AppException;
 import com.sms.model.Role;
 import com.sms.model.RoleName;
 import com.sms.model.User;
 import com.sms.payload.ApiResponse;
 import com.sms.payload.SignUpRequest;
+import com.sms.payload.SendMessage;
 import com.sms.payload.TokenRequest;
 import com.sms.payload.UploadFileResponse;
 import com.sms.payload.UserProfileRequest;
@@ -115,6 +120,10 @@ public class UserController {
 	    @Autowired
 	    Producer producer;
 	    
+	    @Autowired
+		private ApplicationEventPublisher eventPublisher;
+	    
+	    
 	    
 	    @PostMapping("/getToken")
 	    @ApiOperation(value="Get the JWT Token", notes="Generates a random JWT token based on Credentials Provided",produces = "application/json", nickname="getToken")
@@ -143,11 +152,12 @@ public class UserController {
 
 		@PostMapping("/signup")
 		@ApiOperation(value="SignUp", notes="Registers the user", nickname="registerUser")
-	    public  ResponseEntity<?> registerUser(@Valid @RequestBody SignUpRequest signUpRequest) throws Exception 
+	    public ResponseEntity<?> registerUser(@Valid @RequestBody SignUpRequest signUpRequest,WebRequest request) throws Exception 
 	    {
 	    	//logger.info(String.format("user-service registerUser() invoked: %s for %s", signUpRequest.getName())); 
-			 User user = new User(signUpRequest.getName(), signUpRequest.getUsername(), signUpRequest.getEmail(), passwordEncoder.encode(signUpRequest.getPassword()), UUID.randomUUID().toString());
-		        
+			 User user = new User(signUpRequest.getName(), signUpRequest.getUsername(), signUpRequest.getEmail(), passwordEncoder.encode(signUpRequest.getPassword()),signUpRequest.isEnabled(), UUID.randomUUID().toString());
+		      
+			 
 			 if(userRepository.existsByUsername(user.getUsername())) {
 		            return new ResponseEntity(new ApiResponse(false, "Username is already taken!"),
 		                    HttpStatus.BAD_REQUEST);
@@ -164,13 +174,18 @@ public class UserController {
 		        user.setRoles(Collections.singleton(userRole));
 
 		        try {
+		        	
 		        	User result = userRepository.save(user);
+		        	
+		        	String appUrl = request.getContextPath();
+					eventPublisher.publishEvent(new OnRegistrationSuccessEvent(appUrl, request.getLocale(),result));
+		        	
+		        	
 					URI location = ServletUriComponentsBuilder
 			                .fromCurrentContextPath().path("/v1/user/{username}")
 			                .buildAndExpand(result.getUsername()).toUri();
-					producer.sendMessage("Email:"+user.getEmail());
 					
-					 return ResponseEntity.created(location).body(new ApiResponse(true, "User registered successfully"));
+					 return ResponseEntity.created(location).body(new ApiResponse(true, "User registered successfully"+location));
 				} catch (Exception e) 
 		        {
 					logger.error("Exception raised registerUser REST Call {0}", e);
@@ -179,6 +194,26 @@ public class UserController {
 				}      
 	    }
 	    
+		
+		@GetMapping("/confirmRegistration")
+		public ResponseEntity<?> confirmRegistration(WebRequest request,@RequestParam("token") String token) {
+			VerificationToken verificationToken = userService.getVerificationToken(token);
+			if(verificationToken == null) {
+				
+				new ResponseEntity<>("Invalid Verification Token",HttpStatus.BAD_REQUEST);
+			}
+			User user = verificationToken.getUser();
+			Calendar calendar = Calendar.getInstance();
+			
+			if((verificationToken.getExpiryDate().getTime()-calendar.getTime().getTime())<=0) {
+				new ResponseEntity<>("Verification Token Expired",HttpStatus.BAD_REQUEST);
+			}
+			
+			userService.enableRegisteredUser(user);
+			return new ResponseEntity<>("Email Verified !!!",HttpStatus.OK);
+		}
+		
+		
 	    
 	    @GetMapping("/checkUsernameAvailability")
 	    @ApiOperation(value="checkUsernameAvailability", notes="Checks the Username Availability in the System", nickname="checkUsernameAvailability")

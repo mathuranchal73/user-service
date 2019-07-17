@@ -5,6 +5,8 @@ import java.util.Collections;
 import java.util.Properties;
 import java.util.UUID;
 
+import javax.transaction.Transactional;
+
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
@@ -22,10 +24,12 @@ import com.sms.exception.AppException;
 import com.sms.model.Role;
 import com.sms.model.RoleName;
 import com.sms.model.User;
+import com.sms.model.VerificationToken;
 import com.sms.payload.ApiResponse;
 import com.sms.payload.SignUpRequest;
 import com.sms.payload.UserIdentityAvailability;
 import com.sms.repository.RoleRepository;
+import com.sms.repository.TokenRepository;
 import com.sms.repository.UserRepository;
 import com.sms.security.JwtTokenProvider;
 
@@ -42,6 +46,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     RoleRepository roleRepository;
+    
+    @Autowired
+    TokenRepository tokenRepository;
 
     @Autowired
     PasswordEncoder passwordEncoder;
@@ -107,9 +114,28 @@ public class UserServiceImpl implements UserService {
 	}
     
 	
+	public void createVerificationToken(User user, String token) {
+		VerificationToken newUserToken = new VerificationToken(token, user);
+		//tokenRepository.save(newUserToken);
+		tokenRepository.save(newUserToken);
+	}
 	 
-    
-    
-    
+	@Override
+	@Transactional
+	public VerificationToken getVerificationToken(String verificationToken) {
+		return tokenRepository.findByToken(verificationToken);
+	}
 
+	@Override
+	@Transactional
+	public void enableRegisteredUser(User user) {
+		if(!user.isEnabled())
+		{
+		user.setEnabled(true);
+		userRepository.save(user);
+	}
+		else
+			return;
+
+}
 }

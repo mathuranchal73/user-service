@@ -1,5 +1,7 @@
 package com.sms.kafka;
 
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sms.model.User;
 
 @Service
 public class Producer {
@@ -20,14 +23,22 @@ public class Producer {
 	 @Value("${tpd.topic-name}")
 	 private static String TOPIC="Welcome_Email";
 
-	    @Autowired
-	    private KafkaTemplate<String, String> kafkaTemplate;
+	   
+	    
+	   @Autowired
+	   KafkaTemplate kafkaTemplate;
 	    
 	   
 	    
 
 	    public void sendMessage(String message) {
+	    	/**ObjectMapper objectMapper = new ObjectMapper();
+	    	
+            JsonNode  jsonNode = objectMapper.valueToTree(user);**/
+            ProducerRecord<String, String> rec = new ProducerRecord<String, String>(TOPIC,message);
+
 	        logger.info(String.format("#### -> Producing message -> %s", message));
-	        this.kafkaTemplate.send(TOPIC, message);
+	        this.kafkaTemplate.send(rec);
+	     
 	    }
 }
